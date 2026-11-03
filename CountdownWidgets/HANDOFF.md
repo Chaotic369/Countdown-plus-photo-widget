@@ -1,68 +1,62 @@
-# Countdown Widgets: Handoff
+# Countdown Widgets: Handoff (updated)
 
-Status doc for any AI or developer who continues this project. Read it fully before writing code.
+Status doc for any AI or developer continuing this project. Read fully before changing code.
 
 ## 1. What this is
-An Android app (Capacitor hybrid) plus three native home-screen widgets (Text, Photo, Countdown). The WebView app is the widget editor. The widgets are native Kotlin and render themselves to Bitmaps so the fonts, colors and 7-segment digits match the editor. The editor is an adapted copy of the demo app, `index_-_2026-11-02T234300_603.html` (about 81 KB, a single file with inline CSS and JS).
+An Android app (Capacitor 6 hybrid) plus three native home-screen widgets (Text, Photo, Countdown). The WebView app (`www/index.html`) is the widget editor, adapted from the demo `index_-_2026-11-02T234300_603.html`. Widgets are native Kotlin and render themselves to Bitmaps shown in an ImageView inside RemoteViews.
 
-- Package/appId: `com.countdown.widgets`
-- Platform: Android only (minSdk 26, target/compile 34)
-- Stack: Capacitor 6, Kotlin, WorkManager, AppWidgetProvider with RemoteViews
+- appId / package: `com.countdown.widgets`
+- Android only. minSdk 26, compile/target 34, Kotlin 1.9.22, AGP 8.2.1, Gradle 8.2.1
 
-## 2. Decisions already made
-1. Hybrid approach: keep the existing HTML as the editor UI, write widgets natively.
-2. Widgets are drawn to a Bitmap by `WidgetRenderer.kt` and shown in an ImageView inside RemoteViews.
-3. Android cannot redraw widgets every second, so countdowns tick once per minute. Days/hours/minutes are accurate and seconds are approximate. Do not promise live seconds.
-4. Photo auto-change cannot be seconds-level. Use AlarmManager inexact alarms or WorkManager (15 min minimum) and clamp the UI to those limits. The Zoom transition is dropped on the widget; the editor preview may keep it.
-5. Frosted blur is not possible on a widget, so it is replaced by a translucent fill. The editor should show a note.
-6. Long-press menu: the launcher owns long-press on widgets. The menu items (shuffle, pause, remove photo, full screen) move into the app editor. The "Actions" tab is reduced to tap behaviour only.
-7. Tap zones on the Photo widget (the user's default): left third = previous photo, right third = next photo, center = open settings of that widget. Implemented with three transparent overlay views in `widget_photo.xml`, each with its own PendingIntent (`WidgetActions.kt`). The "Left / Center / Right" option stays the default (`tap: 'zones'`).
-8. The photo widget has no border or outline. The border option was removed from the photo style tab (`s.border = 'none'` in the demo). Keep it that way natively. Only a shadow toggle remains.
-9. Each widget instance has separate settings, keyed by `appWidgetId`. A widget library in the app can hold designs that are not placed yet.
-10. The picker must show a preview thumbnail per widget: a text sample, a photo sample and a countdown sample. Use `android:previewLayout` (API 31+) and `android:previewImage` (fallback) in each `*_widget_info.xml`.
-11. The photo widget has the sidebar "New widget" buttons in the editor (Text, Countdown, Photos). Keep them.
+## 2. Status
+All text files in the original plan are written. NOTHING HAS BEEN COMPILED OR RUN YET. Expect a few compile errors on the first build; fix them first.
 
-## 3. Data model (must match the JS in www/index.html)
-Text: id, type 'text', text, font, size, weight, italic, color, align, spacing, bgOn, bg, bgOpacity, blur, radius, pad, border, borderColor.
-Count: id, type 'count', label, showTitle, target ('YYYY-MM-DDTHH:mm'), units{years,months,weeks,days,hours,minutes,seconds}, font ('seg7' or a font name), size, weight, italic, color, showLabels, seps, bgOn, bg, bgOpacity, blur, radius, pad, border, borderColor.
-Photo: id, type 'photo', label, photos[{url,name}], idx, last, paused, auto, interval, shuffle, loop, trans, width, height, fit, radius, opacity, pad, bg, border, borderColor, shadow, brightness, gray, tap ('zones' default), lp, lpTime, plus menu flags mEdit/mNext/mPrev/mShuffle/mPause/mView/mRemove.
+Not written because a text-only tool cannot create binary files (add these by hand):
 
-In the web demo photos are `URL.createObjectURL` blobs. On Android they must be copied into app storage (`PhotoStorage.kt`, files dir `photos/<widgetId>/`) and referenced by file path. Never keep blob URLs.
+- `android/app/src/main/res/font/*.ttf`: Instrument Sans, Fraunces, Playfair Display, Lora, Caveat, Bebas Neue, Space Mono, Orbitron, VT323, Share Tech Mono, Audiowide, Oxanium, Geist Mono. File names must be lowercase with underscores (instrument_sans.ttf, geist_mono.ttf, ...). Until they exist, `FontLoader` falls back to system fonts, so the build still passes.
+- `res/drawable/preview_text.png`, `preview_photo.png`, `preview_countdown.png`: optional. Widget picker previews currently use `previewLayout` (Android 12+). For older Android, add the PNGs and add `android:previewImage="@drawable/preview_text"` (and the others) to the three `res/xml/*_widget_info.xml` files.
+- `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`: run `gradle wrapper --gradle-version 8.2.1` inside `android/`, or just open `android/` in Android Studio.
 
-Countdown math is in the demo's JS `breakdown()` and `addM()` (month-aware, clamps the day to month length). Port it exactly to `CountdownMath.kt`. The 7-segment polygons are in the JS `SEG` and `DIG` tables. Port them to `SevenSegment.kt` as Paths on a 60x100 grid.
+## 3. How to build
+1. `cd CountdownWidgets && npm install`
+2. Add fonts (optional, see above).
+3. `npx cap sync android` (copies `www/` into the app, regenerates `capacitor.settings.gradle`). Do NOT run `npx cap add android`; the android folder already exists.
+4. Open `android/` in Android Studio, run on a device, then long-press the home screen and add the Text, Photos or Countdown widget.
 
-## 4. Planned bridge API (www/bridge.js <-> WidgetBridgePlugin.kt)
-- `getWidgets()` returns all widget configs
-- `saveWidget({config})` persists it and refreshes the placed widget(s)
-- `deleteWidget({id})` removes the config and its photos
-- `savePhoto({widgetId, base64, name})` returns `{path}`
-- `pinWidget({type})` requests pinning a widget (`AppWidgetManager.requestPinAppWidget`)
-- `getLaunchContext()` returns `{appWidgetId, mode}` so the editor opens the right widget when launched from the widget config screen or a center tap
+## 4. Architecture
+- `www/index.html`: the editor. All three widget types, themes, sidebar, color picker, date picker. Talks to native through `window.WidgetBridge` (`www/bridge.js`). Without Capacitor it runs in demo mode.
+- `bridge.js` methods: init, saveWidget, deleteWidget, savePhoto, deletePhoto, pinWidget, finish.
+- `WidgetBridgePlugin.kt`: Capacitor plugin `WidgetBridge`. `init` returns all saved configs plus launch context `{mode:'app'|'config', appWidgetId, type}`.
+- `WidgetStore.kt`: SharedPreferences, one JSON per config (`w_<id>`). A config binds to at most one `appWidgetId`. `put()` keeps the native-owned `appWidgetId` if the editor copy has 0.
+- `PhotoStorage.kt`: copies picked photos into `filesDir/photos/<configId>/`, downscaled to 1600 px with rotation baked in.
+- `WidgetRenderer.kt` (+ `SevenSegment`, `FontLoader`, `CountdownMath`): draws each widget type to a Bitmap, mirroring the editor's CSS/JS.
+- `WidgetActions.kt`: builds RemoteViews, tap handling, photo stepping. Providers are thin.
+- `Ticker` (in `TickWorker.kt`): inexact AlarmManager chain (countdown each minute, photo on its interval) plus a 15 min WorkManager safety net. `BootReceiver` re-arms after boot and receives the TICK alarm.
+- `WidgetConfigActivity.kt`: a BridgeActivity hosting the same editor. Opened by the launcher when a widget is added, and by a center tap on the widget. A floating Done button (added by the JS in config mode) calls `finishConfig`, which returns RESULT_OK so the widget is placed.
+- `PhotoViewerActivity.kt`: full screen photo, left/right third = prev/next, middle = close.
 
-The JS must fall back to the in-memory demo state when `window.Capacitor` is absent so the page can still be opened in a desktop browser.
+## 5. Behaviours the user asked for
+1. Three separate widgets in the picker, each with its own preview.
+2. Each placed widget has separate settings (config per `appWidgetId`).
+3. Photo widget taps (default `tap: 'zones'`): left third = previous photo, right third = next photo, center = open that widget's settings. Other options remain in the editor's Actions tab. Implemented as three FrameLayout zones in `widget_photo.xml`.
+4. The photo widget has no border or outline (border option removed from the photo style tab; shadow stays).
+5. "Add to home screen" button in the editor (not shown in config mode) uses `requestPinAppWidget`; `WidgetConfigActivity` binds the pending config automatically.
 
-## 5. File plan and progress
-Legend: [ ] todo, [x] done, [B] binary, which a text-only tool cannot create.
+## 6. Android limits (already designed around)
+- No per-second redraw: countdown refreshes about once a minute while the device is awake. The editor still shows seconds; the widget value is as of the last refresh.
+- Photo auto-change below about 15 s is not guaranteed. Zoom/slide transitions are not animated on the widget.
+- Frosted blur is not possible on a widget; only the translucent fill is drawn.
+- Long-press menu is not possible on widgets (the launcher owns it). The editor still has the menu for the in-app preview.
+- Countdown with many units is scaled down to fit instead of wrapping to several lines.
 
-- [x] HANDOFF.md
-- [x] package.json
-- [x] capacitor.config.json
-- [x] .gitignore
-- [ ] www/index.html (adapt the demo: add bridge calls, remove Google Fonts links, load fonts from bundled files via @font-face, keep all features)
-- [ ] www/bridge.js
-- [ ] android build files (build.gradle, settings.gradle, gradle.properties, capacitor.settings.gradle, wrapper properties, app/build.gradle, proguard)
-- [ ] AndroidManifest.xml (3 receivers, config activity, viewer activity, boot receiver, FileProvider)
-- [ ] Kotlin: MainActivity, WidgetBridgePlugin, data/*, render/*, widgets/*, config/*, viewer/*, work/*
-- [ ] res layouts (3 widgets + 3 previews), xml widget infos + file_paths, values, launcher icon
-- [B] res/drawable/preview_*.png: screenshot or render sample widgets and drop them in
-- [B] res/font/*.ttf: download from Google Fonts (Instrument Sans, Fraunces, Playfair Display, Lora, Caveat, Bebas Neue, Space Mono, Orbitron, VT323, Share Tech Mono, Audiowide, Oxanium, Geist Mono). Resource names must be lowercase with underscores, as in the file plan.
+## 7. Things to verify first
+1. Compile errors (nothing was built).
+2. Unit order: the editor JS does `UNITS.filter(...).reverse()` and UNITS starts with years, so the preview shows seconds first. `WidgetRenderer.drawCount` copies that on purpose. If the editor order is a demo bug, fix both the JS (`fill()`) and the Kotlin (`.reversed()`).
+3. Variable fonts: `FontLoader` uses `Typeface.create(base, weight, italic)` (API 28+). Variable TTFs may ignore weight; use static weights or `Typeface.Builder(...).setFontVariationSettings`.
+4. The editor loads fonts from Google Fonts, so font previews need internet. Bundling the same files under `www/fonts` with `@font-face` would make it offline-safe.
+5. Capacitor serves photo files through `convertFileSrc('file://' + path)`. If thumbnails do not show in the editor, check that URL.
+6. `finishConfig` and photo saving run on a plugin thread; renderer work is quick but keep an eye on ANRs with large photos.
+7. A deleted placed widget keeps its config in the editor library (unbound). Delete it from the sidebar.
 
-## 6. Known risks
-- RemoteViews has a bitmap size limit (about 15 MB of memory per update). Downscale to the widget size in dp times density and never push full-resolution photos.
-- Large widget Bitmaps: render at the real widget size from `AppWidgetManager.getAppWidgetOptions`.
-- Config activity must `setResult(RESULT_OK)` with `EXTRA_APPWIDGET_ID`, or the widget will not be placed.
-- Capacitor plugin registration happens in `MainActivity` via `registerPlugin(WidgetBridgePlugin::class.java)` before `super.onCreate`.
-- Reschedule updates in `BootReceiver` after a reboot.
-
-## 7. Next step
-Write `www/index.html` (adapted demo), then `www/bridge.js`, then the Gradle files, manifest and Kotlin in the order of the file plan. Keep all existing features and the Cream/Dark themes.
+## 8. Next work
+Build and fix compile errors, add fonts, test on a device: placing each widget, center tap, left/right taps, minute refresh, reboot, resize, dark/light launcher.
